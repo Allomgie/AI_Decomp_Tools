@@ -1,63 +1,63 @@
-# C-Code Generatoren für IDO 5.3 / MIPS
+# C Code Generators for IDO 5.3 / MIPS
 
-Dieser Ordner enthält die Fuzzing-Engines, die den Input für die [Dead-Code Reducer Pipeline](../README.md) produzieren. Ziel ist die kontrollierte Generierung von C-Code, der garantiert mit dem IDO 5.3 Compiler (Nintendo 64 / SGI MIPS) zu validem MIPS-Assembly kompiliert.
-
----
-
-## Übersicht
-
-| Generator | Engine | Besonderheit | Output |
-|-----------|--------|-------------|--------|
-| `gen_csmith_split2.py` | Csmith 2.3.0 | Header/C-Split, Sandkasten-Isolation | `dataset/C/` + `dataset/header/` + `dataset/ASM/` |
-| `gen_csmith_switchCase.py` | Csmith 2.3.0 + pycparser | AST-Mutation: `for`→`do-while`, Switch-Case-Injection | `dataset/C/` + `dataset/header/` + `dataset/ASM/` |
-| `gen_YARPGen_split.py` | YARPGen (gepatcht) | Syntax-Firewall, Dual-Output (init.h + func.c) | `dataset/C/` + `dataset/header/` + `dataset/ASM/` |
+This directory contains the fuzzing engines that supply input for the [Dead-Code Reducer Pipeline](../README.md). The goal is the controlled generation of C code that is guaranteed to compile to valid MIPS assembly with the IDO 5.3 compiler (Nintendo 64 / SGI MIPS).
 
 ---
 
-## Gemeinsame Architektur
+## Overview
 
-Alle drei Generatoren teilen sich ein gemeinsames Design:
-
-1. **Generierung** – Csmith/YARPGen erzeugt rohen C-Code anhand eines Seeds
-2. **Sanitizing** – Typ-Ersetzungen (`uint32_t` → `u32`), Entfernung von Keywords (`static`, `volatile`), Filterung nicht-MIPS-kompatibler Konstrukte
-3. **Splitting** – Trennung in Header (Structs, externe Globals) und C-Datei (Implementation)
-4. **Preprocessing** – `gcc -E` mit IDO-kompatiblen Flags (`-D_LANGUAGE_C`, `-D_MIPS_SZLONG=32`)
-5. **Kompilierung** – IDO 5.3 (`cc -S -O2 -mips2 -G0`) erzeugt MIPS-Assembly
-6. **Cleanup** – Isolierter Sandkasten (`tmp_<seed>/`) wird nach jedem Durchlauf zerstört
+| Generator | Engine | Notable feature | Output |
+|-----------|--------|-----------------|--------|
+| `gen_csmith_split2.py` | Csmith 2.3.0 | Header/C split, sandbox isolation | `dataset/C/` + `dataset/header/` + `dataset/ASM/` |
+| `gen_csmith_switchCase.py` | Csmith 2.3.0 + pycparser | AST mutation: `for`→`do-while`, switch-case injection | `dataset/C/` + `dataset/header/` + `dataset/ASM/` |
+| `gen_YARPGen_split.py` | YARPGen (patched) | Syntax firewall, dual output (init.h + func.c) | `dataset/C/` + `dataset/header/` + `dataset/ASM/` |
 
 ---
 
-## Einzelne Generatoren
+## Shared Architecture
 
-### `gen_csmith_split2.py` – Basis-Generator
+All three generators share a common design:
 
-Der Standard-Generator. Erzeugt einfache C-Funktionen mit kontrollierter Komplexität.
+1. **Generation** – Csmith/YARPGen produces raw C code from a seed
+2. **Sanitising** – Type replacements (`uint32_t` → `u32`), removal of keywords (`static`, `volatile`), filtering of non-MIPS-compatible constructs
+3. **Splitting** – Separation into header (structs, external globals) and C file (implementation)
+4. **Preprocessing** – `gcc -E` with IDO-compatible flags (`-D_LANGUAGE_C`, `-D_MIPS_SZLONG=32`)
+5. **Compilation** – IDO 5.3 (`cc -S -O2 -mips2 -G0`) produces MIPS assembly
+6. **Cleanup** – Isolated sandbox (`tmp_<seed>/`) is destroyed after each run
 
-**Csmith-Parameter-Tuning für MIPS:**
+---
+
+## Individual Generators
+
+### `gen_csmith_split2.py` – Base Generator
+
+The standard generator. Produces simple C functions with controlled complexity.
+
+**Csmith parameter tuning for MIPS:**
 ```python
---max-funcs 1           # Nur eine Funktion pro File
---no-longlong           # Keine 64-Bit-Integer (IDO 5.3 Limitation)
---no-math64             # Keine 64-Bit-Arithmetik
---no-safe-math          # Erlaubt Overflow/Undefined Behavior
---no-arrays             # Keine Arrays (vereinfacht Splitting)
---max-block-depth 2-4   # Kontrollierte Verschachtelung
+--max-funcs 1           # One function per file only
+--no-longlong           # No 64-bit integers (IDO 5.3 limitation)
+--no-math64             # No 64-bit arithmetic
+--no-safe-math          # Allows overflow/undefined behaviour
+--no-arrays             # No arrays (simplifies splitting)
+--max-block-depth 2-4   # Controlled nesting depth
 --max-expr-complexity 2-5
 ```
 
 **Usage:**
 ```bash
 python gen_csmith_split2.py
-# Generiert 40.000 Samples automatisch (konfigurierbar in run_production())
+# Generates 40,000 samples automatically (configurable in run_production())
 ```
 
 ---
 
-### `gen_csmith_switchCase.py` – AST-Mutator
+### `gen_csmith_switchCase.py` – AST Mutator
 
-Erweitert den Basis-Generator durch **pycparser-basierte AST-Transformationen**. Nach der Csmith-Generierung wird der Code geparsed, mutiert und zurückgeneriert.
+Extends the base generator with **pycparser-based AST transformations**. After Csmith generation, the code is parsed, mutated, and regenerated.
 
-**Transformationen:**
-- **For→Do-While:** `for(init; cond; next){ body }` wird zu:
+**Transformations:**
+- **For→Do-While:** `for(init; cond; next){ body }` becomes:
   ```c
   init;
   if (cond) {
@@ -67,121 +67,121 @@ Erweitert den Basis-Generator durch **pycparser-basierte AST-Transformationen**.
       } while (cond);
   }
   ```
-- **Switch-Case-Injection:** Blöcke von 3–6 Statements werden zu Switch-Statements mit `rand_state % n` als Dispatcher
+- **Switch-case injection:** Blocks of 3–6 statements are converted into switch statements using `rand_state % n` as the dispatcher
 
-**Warum?** Diese Muster treten häufig in decompiliertem N64-Code auf. Der Reducer soll lernen, sie zu erkennen und zu vereinfachen.
+**Why?** These patterns appear frequently in decompiled N64 code. The model needs to learn to recognise and simplify them.
 
 **Usage:**
 ```bash
 python gen_csmith_switchCase.py
-# Generiert 60.000 Samples (langsamer als Basis wegen pycparser)
+# Generates 60,000 samples (slower than base due to pycparser)
 ```
 
 ---
 
-### `gen_YARPGen_split.py` – YARPGen-Integration
+### `gen_YARPGen_split.py` – YARPGen Integration
 
-Integriert YARPGen als zweite Engine. YARPGen erzeugt komplexere Konstrukte (mehrere Funktionen, Pointer-Arithmetik, verschachtelte Structs), die Csmith nicht abdeckt.
+Integrates YARPGen as a second fuzzing engine. YARPGen produces more complex constructs (multiple functions, pointer arithmetic, nested structs) that Csmith does not cover.
 
-**Syntax-Firewall:**
-Da YARPGen für moderne x86-Compiler entwickelt wurde, filtert der Generator aktiv nicht-kompatible Konstrukte:
+**Syntax firewall:**
+Since YARPGen was developed for modern x86 compilers, the generator actively filters incompatible constructs:
 
 ```python
-# Blockierte Patterns (PC/Linux-spezifisch)
+# Blocked patterns (PC/Linux-specific)
 SDL_, Py, linux, posix, WEXITSTATUS, setpgid, signal, _exit, getpid
 
-# Syntax-Schutz
-return x  # muss mit ; enden, sonst Abbruch
+# Syntax guard
+return x  # must end with ; otherwise aborted
 ```
 
-**Dual-Output:**
-YARPGen produziert zwei Dateien:
-- `init.h` – Globale Variablen & Konstanten
-- `func.c` – Funktionslogik
+**Dual output:**
+YARPGen produces two files:
+- `init.h` – Global variables & constants
+- `func.c` – Function logic
 
-Der Generator splittet diese automatisch in unser Header/C-Schema.
+The generator automatically splits these into the header/C schema used by the pipeline.
 
-> **Hinweis:** Erfordert ein gepatchtes YARPGen-Binary für IDO 5.3-Kompatibilität. Das Upstream-Binary (https://github.com/intel/yarpgen) generiert Konstrukte, die IDO 5.3 nicht verarbeiten kann (z.B. bestimmte Attribute, moderne C-Features). Der Code in dieser Datei zeigt die Integrationsarchitektur – das Binary selbst ist nicht im Repository enthalten.
+> **Note:** Requires a patched YARPGen binary for IDO 5.3 compatibility. The upstream binary (https://github.com/intel/yarpgen) generates constructs that IDO 5.3 cannot process (e.g. certain attributes, modern C features). The code in this file shows the integration architecture — the binary itself is not included in the repository.
 
 **Usage:**
 ```bash
 python gen_YARPGen_split.py
-# Generiert 60.000 Samples (gepatchtes YARPGen-Binary nötig)
+# Generates 60,000 samples (patched YARPGen binary required)
 ```
 
 ---
 
-## Konfiguration
+## Configuration
 
-Pfade müssen an deine lokale Umgebung angepasst werden:
+Paths must be adjusted to your local environment:
 
 ```python
-# In allen drei Dateien:
+# In all three files:
 BASE_DIR      = "/home/user/deadCodeRemover"
-PROJECT_ROOT  = os.path.join(BASE_DIR, "IDO_compiler")  # <-- Anpassen!
+PROJECT_ROOT  = os.path.join(BASE_DIR, "IDO_compiler")  # <-- adjust
 IDO_DIR       = os.path.join(PROJECT_ROOT, "tools", "ido")
 CSMITH_BIN    = os.path.join(BASE_DIR, "csmith_install/bin/csmith")
-YARPGEN_BIN   = "/pfad/zu/yarpgen"  # <-- Anpassen!
+YARPGEN_BIN   = "/path/to/yarpgen"  # <-- adjust
 ```
 
-**Wichtige Pfade:**
-- `IDO_DIR` – Pfad zum IDO 5.3 Compiler (`cc`)
-- `CSMITH_BIN` – Csmith-Executable
-- `YARPGEN_BIN` – Gepatchtes YARPGen-Binary
-- `INCLUDE_DIR_*` – Projekt-Header (ultralib, PR, etc.)
+**Key paths:**
+- `IDO_DIR` – Path to the IDO 5.3 compiler (`cc`)
+- `CSMITH_BIN` – Csmith executable
+- `YARPGEN_BIN` – Patched YARPGen binary
+- `INCLUDE_DIR_*` – Project headers (ultralib, PR, etc.)
 
 ---
 
-## Output-Struktur
+## Output Structure
 
 ```
 n64_dataset/
-├── C/               # Generierte .c-Dateien
+├── C/               # Generated .c files
 │   ├── csmith_sample_12345.c
 │   └── yarp_sample_678.c
-├── header/          # Zugehörige .h-Dateien
+├── header/          # Corresponding .h files
 │   ├── csmith_sample_12345.h
 │   └── yarp_sample_678.h
-└── ASM/             # Kompilierte MIPS-Assembly (.s)
-    ├── csmith_sample_12345.h
-    └── yarp_sample_678.h
+└── ASM/             # Compiled MIPS assembly (.s)
+    ├── csmith_sample_12345.s
+    └── yarp_sample_678.s
 ```
 
 ---
 
 ## Performance
 
-| Generator | Durchsatz | Limitierender Faktor |
-|-----------|-----------|---------------------|
-| `gen_csmith_split2.py` | ~500–1000 Samples/s | IDO-Kompilierung |
-| `gen_csmith_switchCase.py` | ~200–400 Samples/s | pycparser AST-Mutation |
-| `gen_YARPGen_split.py` | ~50–100 Samples/s | YARPGen-Start + Syntax-Check |
+| Generator | Throughput | Limiting factor |
+|-----------|------------|-----------------|
+| `gen_csmith_split2.py` | ~500–1000 samples/s | IDO compilation |
+| `gen_csmith_switchCase.py` | ~200–400 samples/s | pycparser AST mutation |
+| `gen_YARPGen_split.py` | ~50–100 samples/s | YARPGen startup + syntax check |
 
-Alle Generatoren nutzen **Multiprocessing** (`multiprocessing.Pool`) mit `cpu_count()` Workern.
+All generators use **multiprocessing** (`multiprocessing.Pool`) with `cpu_count()` workers.
 
 ---
 
 ## Troubleshooting
 
-**IDO findet Header nicht:**
-- Prüfe `INCLUDE_DIR_1` bis `INCLUDE_DIR_4` und `CSMITH_INC`
-- Header müssen via `-I` im gcc-Preprocessing sichtbar sein
+**IDO cannot find headers:**
+- Check `INCLUDE_DIR_1` through `INCLUDE_DIR_4` and `CSMITH_INC`
+- Headers must be visible to gcc preprocessing via `-I`
 
-**YARPGen segfaultet:**
-- Normales Verhalten bei ~30% der Seeds. Der Generator fängt das ab und versucht den nächsten Seed.
-- Falls >90% fehlschlagen: YARPGen-Binary ist nicht korrekt gepatcht.
+**YARPGen segfaults:**
+- Normal behaviour for ~30% of seeds. The generator catches this and tries the next seed.
+- If >90% fail: the YARPGen binary is not correctly patched.
 
-**Csmith produziert leere Dateien:**
-- Prüfe, ob `csmith` im PATH erreichbar ist
-- `--max-funcs 1` kann bei bestimmten Seeds leere Outputs erzeugen – der Generator überspringt diese automatisch
+**Csmith produces empty files:**
+- Check that `csmith` is reachable in PATH
+- `--max-funcs 1` can produce empty output for certain seeds — the generator skips these automatically
 
 ---
 
-## Lizenz
+## Licence
 
-Siehe [../LICENSE](../LICENSE). Die Generatoren sind Teil des Dead-Code-Reducer-Projekts und stehen unter MIT-Lizenz.
+See [../LICENSE](../LICENSE). The generators are part of the Dead-Code Reducer project and are released under the MIT licence.
 
-**Hinweis zu Dritt-Tools:**
-- Csmith steht unter BSD-Lizenz (https://github.com/csmith-project/csmith)
-- YARPGen steht unter Apache 2.0 (https://github.com/intel/yarpgen)
-- IDO 5.3 ist proprietäre Software von SGI/Nintendo
+**Third-party tool notices:**
+- Csmith is licenced under BSD (https://github.com/csmith-project/csmith)
+- YARPGen is licenced under Apache 2.0 (https://github.com/intel/yarpgen)
+- IDO 5.3 is proprietary software from SGI/Nintendo
