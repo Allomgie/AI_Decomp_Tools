@@ -1,33 +1,37 @@
 # AI_Decomp_Tools
 
-Dieses Repository buendelt Pipeline-Skripte und Werkzeuge zur semantischen Analyse, Codegenerierung und Verarbeitung von MIPS-Assembly, primaer ausgelegt fuer N64-Decompilation-Workflows. 
+This repository bundles pipeline scripts and tools for semantic analysis, code generation, and MIPS assembly processing, primarily designed for N64 decompilation workflows.
 
-Das Repository besteht aus drei voneinander getrennten, aber ergaenzenden Tools:
+The repository consists of three separate but complementary tools:
 
 ## 1. CtoIDO
 **MIPS Assembly Generator & Cleaner**
 
-Dieses Tool wandelt C-Dateien in sauberen, kommentarfreien MIPS-Assembly-Code um. Es ist darauf ausgelegt, Code originalgetreu mit dem IDO-Compiler zu verarbeiten.
-* **Pipeline:** Der Code durchlaeuft eine Kette aus Header-Sanitisierung, Präprozessor (gcc), Kompilierung (IDO) und Disassemblierung (spimdisasm).
-* **Outputs:** Pro C-Datei werden zwei Artefakte generiert:
-    * `ASM_Raw`: Ein zusammengesetzter Output aller Sektionen (`.text`, `.data`, `.rodata`, `.bss`).
-    * `ASM_Cleaned`: Eine bereinigte Version ohne Kommentare, mit normalisierten Labels und ausgewerteten statischen Bit-Operationen.
-* *Weitere Details im [CtoIDO Unterordner](CtoIDO/README.md).*
+This tool converts C files into clean, comment-free MIPS assembly. It is designed to process code faithfully using the IDO compiler.
+
+- **Pipeline:** Code passes through a chain of header sanitisation, preprocessor (gcc), compilation (IDO), and disassembly (spimdisasm).
+- **Outputs:** Two artefacts are generated per C file:
+    - `ASM_Raw`: A merged output of all sections (`.text`, `.data`, `.rodata`, `.bss`).
+    - `ASM_Cleaned`: A cleaned version without comments, with normalised labels and evaluated static bit operations.
+- *See the [CtoIDO subfolder](CtoIDO/README.md) for details.*
 
 ## 2. Synthetic_C_Generator
-**Fuzzing-Engines fuer IDO 5.3 / MIPS**
+**Fuzzing engines for IDO 5.3 / MIPS**
 
-Dieses Verzeichnis enthaelt Generatoren, die automatisiert C-Code produzieren, welcher garantiert mit dem IDO 5.3 Compiler zu validem MIPS-Assembly kompiliert. Die Tools dienen als Input-Lieferanten fuer das Training von Machine-Learning-Modellen (z. B. einer Dead-Code Reducer Pipeline).
-* **Engines:** * Basis Csmith-Generator fuer einfache, kontrollierte Funktionen.
-    * AST-Mutator (via pycparser) zur gezielten Injektion typischer Decompilation-Muster wie spezifische Switch-Cases oder Do-While-Schleifen.
-    * Gepatchte YARPGen-Integration fuer komplexe Konstrukte und Pointer-Arithmetik.
-* *Weitere Details im [Synthetic_C_Generator Unterordner](Synthetic_C_Generator/README.md).*
+This directory contains generators that automatically produce C code guaranteed to compile to valid MIPS assembly with the IDO 5.3 compiler. The tools serve as data suppliers for training machine learning models (e.g. a dead-code reducer pipeline).
+
+- **Engines:**
+    - Base Csmith generator for simple, controlled functions.
+    - AST mutator (via pycparser) for targeted injection of typical decompilation patterns such as specific switch-cases and do-while loops.
+    - Patched YARPGen integration for complex constructs and pointer arithmetic.
+- *See the [Synthetic_C_Generator subfolder](Synthetic_C_Generator/README.md) for details.*
 
 ## 3. TechEnv_Builder (Work in Progress)
 **MIPS Semantic Expert Extractor**
 
-Ein in Entwicklung befindliches Analyse-Tool, das die Bruecke zwischen rohem MIPS-Assembly und high-level C-Semantik schlaegt.
-* **Funktion:** Analysiert MIPS-Assembly-Dateien (IDO Output) und verknuepft sie mit C-Header-Definitionen, um tiefgehende semantische Metadaten zu extrahieren.
-* **Features:** Rekonstruiert Register-Tracking, Stack-Frame-Layouts, Variablen-Typisierung und Call-Graphs. Es erkennt spezifische Compiler-Muster wie Tail-Calls und Blind-Saves.
-* **Output-Format:** Generiert pro Datei ein dichtes, token-effizientes JSON (`Semantic Expert IR - v10`), das in statische Typ-Datenbanken (`env`) und per-Funktion Analysen (`funcs[]`) gegliedert ist.
-* *Weitere Details im [TechEnv_Builder Unterordner](TechEnv_Builder/README.md).*
+An analysis tool under development that bridges the gap between raw MIPS assembly and high-level C semantics.
+
+- **Function:** Analyses MIPS assembly files (IDO output) and links them with C header definitions to extract deep semantic metadata.
+- **Features:** Reconstructs register tracking, stack frame layouts, variable typing, and call graphs. Detects specific compiler patterns such as tail calls and blind saves.
+- **Output format:** Generates a dense, token-efficient JSON per file (`Semantic Expert IR - v10`), structured into a static type database (`env`) and per-function analyses (`funcs[]`).
+- *See the [TechEnv_Builder subfolder](TechEnv_Builder/README.md) for details.*
