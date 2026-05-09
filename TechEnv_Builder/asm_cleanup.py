@@ -1,12 +1,13 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-0_asm_cleanup_raw.py
-====================
-Cleans MIPS assembly files: removes comments, normalizes formatting,
+0_asm_cleanup_raw_recursive.py
+==============================
+Cleans MIPS assembly files recursively: removes comments, normalizes formatting,
 and evaluates static bit operations (>> 16, & 0xFFFF) directly within instructions.
 
-Reads from:  INPUT_DIR
-Writes to:   OUTPUT_DIR
+Reads from:  INPUT_DIR  (with subdirectories)
+Writes to:   OUTPUT_DIR (mirrors input structure)
 """
 import os
 import re
@@ -14,8 +15,8 @@ from tqdm import tqdm
 
 # --- CONFIGURATION ---
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
-INPUT_DIR  = os.path.join(BASE_DIR, "input_raw_asm")
-OUTPUT_DIR = os.path.join(BASE_DIR, "output_clean_asm")
+INPUT_DIR  = os.path.join(BASE_DIR, "Input_ASM_Raw")
+OUTPUT_DIR = os.path.join(BASE_DIR, "Output_ASM")
 
 
 def clean_asm(raw_asm):
@@ -26,16 +27,12 @@ def clean_asm(raw_asm):
     cleaned = []
     lines = raw_asm.splitlines()
 
-    # Pattern for instructions
     instr_pattern = re.compile(
         r"^\s*/\*\s*[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+([0-9A-Fa-f]{8})\s*\*/\s*(.*)$")
-    # Pattern for data directives
     data_pattern = re.compile(
         r"^\s*/\*\s*[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s*\*/\s*(\.[a-z]+\s+.*)$")
-    # Pattern for exclusive hex code lines
     hex_only_pattern = re.compile(
         r"^\s*/\*\s*([0-9A-Fa-f]+)\s*\*/\s*$")
-    # Pattern for bit operations in operands
     bitop_pattern = re.compile(
         r"\((0x[0-9A-Fa-f]+)\s*(>>\s*16|&\s*0xFFFF)\)")
 
@@ -53,25 +50,21 @@ def clean_asm(raw_asm):
         line = lines[i]
         stripped_line = line.strip()
 
-        # 1. Keep function and data entry points
         if stripped_line.startswith(("glabel", "dlabel", ".section")):
             cleaned.append(stripped_line)
             i += 1
             continue
 
-        # 2. Normalize local jump labels
         if stripped_line.endswith(":"):
             cleaned.append(f"00000000 {stripped_line}")
             i += 1
             continue
 
-        # 3. Keep endlabel
         if stripped_line.startswith("endlabel"):
             cleaned.append(stripped_line)
             i += 1
             continue
 
-        # 4. Process instructions & evaluate bit-ops
         match = instr_pattern.match(line)
         if match:
             hex_code = match.group(1).lower()
@@ -83,7 +76,6 @@ def clean_asm(raw_asm):
             i += 1
             continue
 
-        # 5. Merge data directives with hex codes
         data_match = data_pattern.match(line)
         if data_match:
             directive = data_match.group(1).strip()
@@ -116,14 +108,13 @@ def main():
         print(f"Error: Input directory '{INPUT_DIR}' not found!")
         return
 
-    # Automatically detect all group folders in the input directory
     raw_dirs = sorted([
         d for d in os.listdir(INPUT_DIR)
         if os.path.isdir(os.path.join(INPUT_DIR, d))
     ])
 
     if not raw_dirs:
-        print(f"No subdirectories found in '{INPUT_DIR}'! Please organize your ASM files into subfolders.")
+        print(f"No subdirectories found in '{INPUT_DIR}'!")
         return
 
     print(f"Found groups: {len(raw_dirs)}")
@@ -132,26 +123,35 @@ def main():
     print()
 
     for group_name in raw_dirs:
-        # e.g., ASM_Raw_Save_00_generated -> ASM_Save_00_generated
         clean_name = group_name.replace("Raw_", "").replace("raw_", "")
-
         source_dir = os.path.join(INPUT_DIR, group_name)
         target_dir = os.path.join(OUTPUT_DIR, clean_name)
-        os.makedirs(target_dir, exist_ok=True)
 
-        # Collect all files in this folder
-        files = [f for f in os.listdir(source_dir)
-                 if os.path.isfile(os.path.join(source_dir, f))]
+        # --- REKURSIV alle Dateien sammeln ---
+        tasks = []
+        for root, dirs, files in os.walk(source_dir):
+            rel_dir = os.path.relpath(root, source_dir)
+            if rel_dir == ".":
+                rel_dir = ""
 
-        print(f"--- {group_name} -> {clean_name}: {len(files)} files ---")
+            out_dir = os.path.join(target_dir, rel_dir)
+            for filename in files:
+                source_path = os.path.join(root, filename)
+                target_path = os.path.join(out_dir, filename)
+                tasks.append((source_path, target_path, out_dir))
+
+        if not tasks:
+            print(f"--- {group_name}: no files found ---")
+            continue
+
+        print(f"--- {group_name} -> {clean_name}: {len(tasks)} files ---")
 
         ok = 0
         err = 0
-        for filename in tqdm(files, desc=clean_name):
-            source_path = os.path.join(source_dir, filename)
-            target_path = os.path.join(target_dir, filename)
-
+        for source_path, target_path, out_dir in tqdm(tasks, desc=clean_name):
             try:
+                os.makedirs(out_dir, exist_ok=True)
+
                 with open(source_path, "r", encoding="utf-8", errors="ignore") as f:
                     raw_content = f.read()
 
@@ -162,7 +162,7 @@ def main():
                         f.write(cleaned_content)
                     ok += 1
             except Exception as e:
-                print(f"  Error processing {filename}: {e}")
+                print(f"  Error processing {os.path.relpath(source_path, INPUT_DIR)}: {e}")
                 err += 1
 
         print(f"  [OK] {ok} processed, {err} errors\n")
